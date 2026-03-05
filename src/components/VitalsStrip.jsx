@@ -1,4 +1,4 @@
-// ─── VitalsStrip.jsx ──────────────────────────────────────────
+// ─── VitalsStrip.jsx ─────────────────────────────────────────
 
 export default function VitalsStrip({ vitals }) {
   const items = [

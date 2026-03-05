@@ -1,4 +1,4 @@
-// ─── BottomNav.jsx ────────────────────────────────────────────
+// ─── BottomNav.jsx ───────────────────────────────────────────
 
 const NAV = [
   { key: 'home',     label: 'Home',     icon: HomeIcon },
