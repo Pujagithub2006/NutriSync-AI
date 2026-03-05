@@ -22,7 +22,7 @@ app.post("/api/physiology", async (req, res) => {
   }
 });
 
-// ── Enhanced Physiology Route (Python Backend) ──────────────────────────────────────────
+// ── Enhanced Physiology Route (Python Backend) ─────────────────────────────────────────
 app.post("/api/physiology-enhanced", async (req, res) => {
   try {
     // Forward to Python backend's physiology endpoint
