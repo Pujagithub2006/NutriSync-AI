@@ -43,7 +43,7 @@ A **Full Day Plan** generates breakfast, lunch, snack, dinner, an exercise sched
 ## Attribution
 
 - [React](https://reactjs.org) — Frontend UI framework (MIT License)
-- [Vite](https://vitejs.dev) — Development build tool (MIT License)
+- [Create React App](https://create-react-app.dev) — Project bootstrapping (MIT License)
 - [Express.js](https://expressjs.com) — Proxy server for API key management (MIT License)
 - [Groq API](https://groq.com) — LLaMA 3.1-8b-instant for AI meal, exercise and hydration recommendations
 - [Spoonacular API](https://spoonacular.com/food-api) — Food images for meal cards
@@ -51,7 +51,6 @@ A **Full Day Plan** generates breakfast, lunch, snack, dinner, an exercise sched
 - [Firebase Firestore](https://firebase.google.com) — Cloud storage for profiles and food diary
 - [cors](https://www.npmjs.com/package/cors) — Cross-origin request handling (MIT License)
 - [dotenv](https://www.npmjs.com/package/dotenv) — Environment variable management (BSD-2 License)
-- [Google Fonts — Syne & Inter](https://fonts.google.com) — UI typography (Open Font License)
 
 ---
 
