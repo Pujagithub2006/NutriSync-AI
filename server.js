@@ -2,52 +2,64 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 require('dotenv').config();
+const path = require("path");
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
+// Serve frontend build
+app.use(express.static(path.join(__dirname, "build")));
+
+/* ─────────────────────────────────────────
+   Physiology Route
+───────────────────────────────────────── */
 app.post("/api/physiology", async (req, res) => {
   try {
     const response = await axios.post(
-      "http://localhost:8000/physiology",
+      `${process.env.PYTHON_ENGINE}/physiology`,
       req.body
     );
 
     res.json(response.data);
 
   } catch (error) {
-    console.error(error);
+    console.error("Physiology error:", error.message);
     res.status(500).send("Nutrition engine error");
   }
 });
 
-// ── Enhanced Physiology Route (Python Backend) ─────────────────────────────────────────
+/* ─────────────────────────────────────────
+   Enhanced Physiology Route
+───────────────────────────────────────── */
 app.post("/api/physiology-enhanced", async (req, res) => {
   try {
-    // Forward to Python backend's physiology endpoint
+
     const response = await axios.post(
-      "http://localhost:8000/v1/physiology/sync",
+      `${process.env.PYTHON_ENGINE}/v1/physiology/sync`,
       req.body
     );
 
     res.json(response.data);
 
   } catch (error) {
-    console.error("Enhanced physiology error:", error);
+    console.error("Enhanced physiology error:", error.message);
     res.status(500).json({ error: "Enhanced physiology service unavailable" });
   }
 });
 
-// ── Real-time Vitals Route (Google Fit Integration) ─────────────────────────────────────
+/* ─────────────────────────────────────────
+   Real-time Vitals
+───────────────────────────────────────── */
 app.get("/api/vitals-realtime", async (req, res) => {
   try {
-    // This would integrate with Google Fit ingestion
+
     const response = await axios.get(
-      "http://localhost:8000/v1/physiology/today",
+      `${process.env.PYTHON_ENGINE}/v1/physiology/today`,
       {
         headers: {
-          'Authorization': 'Bearer test-user-123'
+          Authorization: `Bearer ${process.env.BACKEND_AUTH_TOKEN}`
         }
       }
     );
@@ -55,14 +67,17 @@ app.get("/api/vitals-realtime", async (req, res) => {
     res.json(response.data);
 
   } catch (error) {
-    console.error("Real-time vitals error:", error);
+    console.error("Real-time vitals error:", error.message);
     res.status(500).json({ error: "Real-time vitals unavailable" });
   }
 });
 
-// ── AI Chat (Groq) ────────────────────────────────────────────
+/* ─────────────────────────────────────────
+   AI Chat (Groq)
+───────────────────────────────────────── */
 app.post('/api/chat', async (req, res) => {
   try {
+
     const { messages } = req.body;
     const prompt = messages.map(m => m.content).join('\n');
 
@@ -83,6 +98,7 @@ app.post('/api/chat', async (req, res) => {
     );
 
     const text = response.data.choices[0].message.content;
+
     res.json({ content: [{ type: 'text', text }] });
 
   } catch (err) {
@@ -91,24 +107,23 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// ── Food Image (Spoonacular) ──────────────────────────────────
+/* ─────────────────────────────────────────
+   Food Image (Spoonacular)
+───────────────────────────────────────── */
 app.get('/api/food-image', async (req, res) => {
   try {
+
     const { query } = req.query;
 
-    // Simplify query — Spoonacular is Western-focused, strip regional/descriptive words
     const simplified = query
-      .replace(/\(.*?\)/g, '')        // remove (Black-eyed Pea) style brackets
-      .replace(/\bwith\b.*/i, '')     // remove "with ..." onwards
+      .replace(/\(.*?\)/g, '')
+      .replace(/\bwith\b.*/i, '')
       .replace(/whole wheat|brown rice|grilled|steamed|masala|tikka|lobia|sabzi|curry|dal|roti|chapati|bhurji|tadka|makhani|paneer/gi, '')
-      .replace(/\s+/g, ' ')           // collapse extra spaces
+      .replace(/\s+/g, ' ')
       .trim()
       .split(' ')
-      .slice(0, 3)                    // max 3 words
+      .slice(0, 3)
       .join(' ');
-
-    console.log(`🍱 Original: "${query}" → Simplified: "${simplified}"`);
-    console.log('🔑 Spoonacular key exists:', !!process.env.SPOONACULAR_API_KEY);
 
     const response = await axios.get(
       'https://api.spoonacular.com/recipes/complexSearch',
@@ -122,17 +137,31 @@ app.get('/api/food-image', async (req, res) => {
     );
 
     const results = response.data.results;
-    console.log('✅ Results found:', results?.length || 0, results?.[0]?.title || '');
 
     if (results && results.length > 0) {
       res.json({ image: results[0].image, title: results[0].title });
     } else {
       res.json({ image: null });
     }
+
   } catch (err) {
-    console.error('❌ Image error:', err.response?.data || err.message);
+    console.error('Image error:', err.response?.data || err.message);
     res.status(500).json({ image: null });
   }
 });
 
-app.listen(5000, '0.0.0.0', () => console.log('✅ Proxy running on http://localhost:5000'));
+/* ─────────────────────────────────────────
+   Serve React App
+───────────────────────────────────────── */
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, "build", "index.html"));
+});
+
+/* ─────────────────────────────────────────
+   Start Server (Render Compatible)
+───────────────────────────────────────── */
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 NutriSync server running on port ${PORT}`);
+});
