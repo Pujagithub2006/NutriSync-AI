@@ -1,8 +1,7 @@
 // ─── AIScreen.jsx ─────────────────────────────────────────────
 import { useState } from 'react';
 import { storage } from '../utils/storage';
-import { calculateHealthScore, getHealthTier, getTierPrompt, calculateGlycemicImpact } from '../utils/healthScore';
-import { calculateHealthScoreEnhanced } from '../services/healthScoreEnhanced';
+import { calculateHealthScore, getHealthTier, generateTierPrompt, calculateGlycemicImpact } from '../utils/healthScore';
 
 const MEAL_TIMES = ['Breakfast','Lunch','Dinner','Snack'];
 const EMOJIS = ['🥗','🍱','🥙','🫙','🍳','🥘','🫕','🥣','🍛','🥩','🐟','🥦'];
@@ -13,6 +12,22 @@ function getMealTime() {
   if (h<14) return 'Lunch';
   if (h<18) return 'Snack';
   return 'Dinner';
+}
+
+// ── Parse vitals to correct numeric types ─────────────────────
+// Vitals from props/device may arrive as strings — this ensures
+// all scorer functions receive proper numbers/strings as expected.
+function parseVitals(raw) {
+  if (!raw) return { hr:72, spo2:98, hrv:55, steps:0, stress:'Low', activity:'Moderate' };
+  return {
+    ...raw,
+    hr:       parseFloat(raw?.hr)       || 75,
+    spo2:     parseFloat(raw?.spo2)     || 98,
+    hrv:      parseFloat(raw?.hrv)      || 60,
+    steps:    parseInt(raw?.steps)      || 0,
+    stress:   raw?.stress               || 'Low',
+    activity: raw?.activity             || 'Moderate',
+  };
 }
 
 function TypingDots() {
@@ -102,7 +117,6 @@ function GlycemicImpactCard({ impact }) {
 
   return (
     <div style={{ marginBottom:12, background:'var(--surface2)', borderRadius:16, border:`2px solid ${color}40`, padding:'13px 14px' }}>
-      {/* Header row */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
         <div>
           <div style={{ fontSize:10, fontFamily:'var(--font-head)', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:3 }}>
@@ -118,24 +132,19 @@ function GlycemicImpactCard({ impact }) {
           <div style={{ fontSize:9, color:'var(--text-muted)', fontFamily:'var(--font-head)' }}>/100</div>
         </div>
       </div>
-
-      {/* Progress bar */}
       <div style={{ height:6, background:'rgba(255,255,255,0.06)', borderRadius:4, overflow:'hidden', marginBottom:8 }}>
         <div style={{ height:'100%', width:`${score}%`, background:`linear-gradient(90deg,${color},${color}88)`, borderRadius:4, transition:'width 1s ease' }}/>
       </div>
-
-      {/* Insight */}
-      <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.5, marginBottom:8, padding:'8px 10px', background:'rgba(255,255,255,0.03)', borderRadius:8, borderLeft:`2px solid ${color}` }}>
-        {insight}
-      </div>
-
-      {/* Expand factors */}
+      {insight && (
+        <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.5, marginBottom:8, padding:'8px 10px', background:'rgba(255,255,255,0.03)', borderRadius:8, borderLeft:`2px solid ${color}` }}>
+          {insight}
+        </div>
+      )}
       <div onClick={()=>setExpanded(!expanded)} style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
         <div style={{ fontSize:9, fontFamily:'var(--font-head)', fontWeight:700, color:'var(--text-muted)' }}>
           {expanded?'Hide factors ▲':`${breakdown.length} scoring factors ▼`}
         </div>
       </div>
-
       {expanded && (
         <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:5 }}>
           {breakdown.map((f,i)=>(
@@ -154,7 +163,7 @@ function GlycemicImpactCard({ impact }) {
 }
 
 // ── Main Screen ───────────────────────────────────────────────
-export default function AIScreen({ vitals }) {
+export default function AIScreen({ vitals: rawVitals }) {
   const [mealType, setMealType]     = useState(getMealTime());
   const [loading, setLoading]       = useState(false);
   const [meals, setMeals]           = useState([]);
@@ -164,37 +173,40 @@ export default function AIScreen({ vitals }) {
   const [logged, setLogged]         = useState([]);
   const [healthData, setHealthData] = useState(null);
 
-  const profile    = storage.getProfile();
-  const eatenToday = storage.getEatenToday();
-  const diary      = storage.getDiary();
+  // ✅ Parse vitals once — all downstream code uses this
+  const vitals = parseVitals(rawVitals);
+
+  const profile    = storage.getProfile() || { diseases:[], allergies:[], goal:'balance', age:25, activity:'Moderately Active', bmi:'22' };
+  const eatenToday = storage.getEatenToday() || [];
+  const diary      = storage.getDiary() || [];
 
   async function fetchFoodImage(name) {
     try {
       const res  = await fetch(`http://localhost:5000/api/food-image?query=${encodeURIComponent(name)}`);
       const data = await res.json();
-      return data.image||null;
+      return data.image || null;
     } catch { return null; }
   }
 
   async function generate() {
     setLoading(true); setMeals([]); setExercise(null); setHydration(null); setError('');
 
-    const bmi      = profile?.bmi||'Unknown';
-    const diseases = profile?.diseases?.filter(d=>d!=='None').join(', ')||'None';
-    const allergies= profile?.allergies?.join(', ')||'None';
-    const diet     = profile?.vegan?'Vegan':profile?.vegetarian?'Vegetarian':'Non-vegetarian';
+    const bmi      = profile?.bmi || 'Unknown';
+    const diseases = profile?.diseases?.filter(d=>d!=='None').join(', ') || 'None';
+    const allergies= profile?.allergies?.join(', ') || 'None';
+    const diet     = profile?.vegan ? 'Vegan' : profile?.vegetarian ? 'Vegetarian' : 'Non-vegetarian';
 
-    // 10-parameter health score (enhanced with Python backend)
-    const { percentage, breakdown, totalWeight, enhanced, state, reasons } = await calculateHealthScoreEnhanced(profile, vitals, diary);
+    // ✅ vitals is already parsed — safe to pass directly to all scorers
+    const { percentage, breakdown, weights } = calculateHealthScore(profile, vitals, diary);
     const tier     = getHealthTier(percentage);
-    const tierText = getTierPrompt(tier.tier, percentage, profile, vitals, breakdown);
-    setHealthData({ percentage, tier, breakdown, totalWeight });
+    const tierText = generateTierPrompt(percentage, profile, vitals, breakdown);
+    setHealthData({ percentage, tier, breakdown, weights });
 
-    const todayKcal     = diary.reduce((a,m)=>a+(m.kcal||0),0);
-    const kcalGoal      = profile?.goal==='weightloss'?1600:profile?.goal==='muscle'?2800:2200;
-    const remainingKcal = Math.max(0, kcalGoal-todayKcal);
+    const todayKcal     = diary.reduce((a,m) => a + (m.kcal||0), 0);
+    const kcalGoal      = profile?.goal==='weightloss' ? 1600 : profile?.goal==='muscle' ? 2800 : 2200;
+    const remainingKcal = Math.max(0, kcalGoal - todayKcal);
     const hour          = new Date().getHours();
-    const timeOfDay     = hour<10?'morning':hour<14?'midday':hour<18?'afternoon':'evening';
+    const timeOfDay     = hour<10 ? 'morning' : hour<14 ? 'midday' : hour<18 ? 'afternoon' : 'evening';
 
     const prompt = `You are NutriSync AI, an expert clinical nutritionist and lifestyle medicine specialist.
 
@@ -212,7 +224,7 @@ Goal: ${profile?.goal} | Activity: ${profile?.activity}
 =================================================================
 REAL-TIME PHYSIOLOGICAL DATA
 =================================================================
-❤️ HR: ${vitals.hr} BPM | 🫁 SpO₂: ${vitals.spo2}% | 🧠 HRV: ${vitals.hrv}ms
+❤️ HR: ${Math.round(vitals.hr)} BPM | 🫁 SpO₂: ${vitals.spo2.toFixed(1)}% | 🧠 HRV: ${vitals.hrv.toFixed(1)}ms
 📊 Stress: ${vitals.stress} | 👣 Steps: ${vitals.steps} | ⚡ Activity: ${vitals.activity}
 Time: ${timeOfDay} | Meal: ${mealType} | Remaining calories: ${remainingKcal} kcal
 
@@ -227,20 +239,20 @@ For each meal you MUST provide accurate:
 
 Two meals can have identical calories but completely different glycemic impact.
 Prioritize meals with:
-${profile?.diseases?.some(d=>d.toLowerCase().includes('diabetes'))?'- LOW GI and LOW GL (critical for diabetes management)':''}
-${vitals.stress==='High'?'- LOW GI (cortisol already elevates blood sugar)':''}
-${profile?.goal==='weightloss'?'- LOW GI/GL (keeps insulin low = promotes fat burning)':''}
-${vitals.hr>85?'- ANTI-INFLAMMATORY ingredients (reduces cardiovascular stress)':''}
+${profile?.diseases?.some(d=>d.toLowerCase().includes('diabetes')) ? '- LOW GI and LOW GL (critical for diabetes management)' : ''}
+${vitals.stress==='High' ? '- LOW GI (cortisol already elevates blood sugar)' : ''}
+${profile?.goal==='weightloss' ? '- LOW GI/GL (keeps insulin low = promotes fat burning)' : ''}
+${vitals.hr>85 ? '- ANTI-INFLAMMATORY ingredients (reduces cardiovascular stress)' : ''}
 
 =================================================================
 TOP PARAMETERS NEEDING ATTENTION
 =================================================================
-${breakdown.filter(b=>b.score<60).slice(0,3).map(b=>`- ${b.label}: ${b.score}/100 (weight:${b.weight})`).join('\n')||'All parameters in good range'}
+${breakdown.filter(b=>b.score<60).slice(0,3).map(b=>`- ${b.label}: ${b.score}/100 (weight:${b.weight})`).join('\n') || 'All parameters in good range'}
 
 =================================================================
 ALREADY EATEN TODAY — DO NOT REPEAT
 =================================================================
-${eatenToday.length>0?eatenToday.join(', '):'Nothing yet'}
+${eatenToday.length>0 ? eatenToday.join(', ') : 'Nothing yet'}
 
 =================================================================
 RULES
@@ -265,7 +277,7 @@ Return ONLY valid JSON, no markdown:
       "gl": 10,
       "key_nutrient": "Iron, Fiber, Magnesium",
       "best_time": "Have within 30 mins",
-      "reason": "2-3 sentences referencing glycemic impact, vitals (HR:${vitals.hr}, SpO₂:${vitals.spo2}) and health tier ${tier.tier}",
+      "reason": "2-3 sentences referencing glycemic impact, vitals (HR:${Math.round(vitals.hr)}, SpO₂:${vitals.spo2.toFixed(1)}) and health tier ${tier.tier}",
       "ingredients": ["ingredient1","ingredient2","ingredient3","ingredient4"]
     }
   ],
@@ -287,35 +299,35 @@ Return ONLY valid JSON, no markdown:
     try {
       const res = await fetch('http://localhost:5000/api/chat', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ messages:[{role:'user',content:prompt}] }),
+        body: JSON.stringify({ messages:[{role:'user', content:prompt}] }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
 
-      const text   = data.content?.map(b=>b.text||'').join('')||'';
+      const text   = data.content?.map(b=>b.text||'').join('') || '';
       const clean  = text.replace(/```json|```/g,'').trim();
       const parsed = JSON.parse(clean);
-      const mealList = parsed.meal_options||(Array.isArray(parsed)?parsed:[]);
+      const mealList = parsed.meal_options || (Array.isArray(parsed) ? parsed : []);
 
       const mealsWithImages = await Promise.all(
-        mealList.map(async meal=>({ ...meal, foodImage:await fetchFoodImage(meal.name) }))
+        mealList.map(async meal => ({ ...meal, foodImage: await fetchFoodImage(meal.name) }))
       );
       setMeals(mealsWithImages);
       if (parsed.exercise)  setExercise(parsed.exercise);
       if (parsed.hydration) setHydration(parsed.hydration);
-    } catch(e) { setError('AI error: '+e.message); }
+    } catch(e) { setError('AI error: ' + e.message); }
     setLoading(false);
   }
 
   function logMeal(meal) {
     const user = storage.getUser();
-    storage.addMeal(user?.uid, {...meal, mealType});
-    setLogged(l=>[...l,meal.name]);
+    storage.addMeal(user?.uid, { ...meal, mealType });
+    setLogged(l => [...l, meal.name]);
   }
 
-  const giColor        = v => v==='Low'?'var(--accent2)':v==='Medium'?'var(--orange)':'var(--red)';
-  const glColor        = v => v<10?'var(--accent2)':v<20?'var(--orange)':'var(--red)';
-  const intensityColor = v => v==='Low'?'var(--accent2)':v==='Moderate'?'var(--accent)':'var(--red)';
+  const giColor        = v => v==='Low' ? 'var(--accent2)' : v==='Medium' ? 'var(--orange)' : 'var(--red)';
+  const glColor        = v => v<10 ? 'var(--accent2)' : v<20 ? 'var(--orange)' : 'var(--red)';
+  const intensityColor = v => v==='Low' ? 'var(--accent2)' : v==='Moderate' ? 'var(--accent)' : 'var(--red)';
 
   return (
     <div className="screen">
@@ -338,12 +350,12 @@ Return ONLY valid JSON, no markdown:
         <div style={{ fontSize:9, fontFamily:'var(--font-head)', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:8 }}>Live Bio-Context</div>
         <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
           {[
-            {label:`❤️ ${vitals.hr} BPM`,hi:true},
-            {label:`🫁 SpO₂ ${vitals.spo2}%`,hi:true},
-            {label:`👟 ${vitals.steps.toLocaleString()} steps`},
-            {label:`🧠 ${vitals.stress} stress`,hi:vitals.stress==='High'},
-            {label:`🧬 HRV ${vitals.hrv}ms`},
-            {label:`⚡ ${vitals.activity}`},
+            { label:`❤️ ${Math.round(vitals.hr)} BPM`,           hi:true },
+            { label:`🫁 SpO₂ ${vitals.spo2.toFixed(1)}%`,        hi:true },
+            { label:`👟 ${vitals.steps.toLocaleString()} steps` },
+            { label:`🧠 ${vitals.stress} stress`,                 hi:vitals.stress==='High' },
+            { label:`🧬 HRV ${vitals.hrv.toFixed(1)}ms` },
+            { label:`⚡ ${vitals.activity}` },
           ].map(c=>(
             <div key={c.label} className={`pill ${c.hi?'selected':''}`} style={{cursor:'default'}}>{c.label}</div>
           ))}
@@ -351,20 +363,32 @@ Return ONLY valid JSON, no markdown:
       </div>
 
       {/* Alert banners */}
-      {vitals.hr>90&&<div style={{margin:'10px 24px 0',padding:'10px 14px',background:'rgba(255,179,71,0.08)',border:'1px solid rgba(255,179,71,0.25)',borderRadius:12,fontSize:12,color:'var(--orange)'}}>⚠️ Elevated HR — low GI meals recommended</div>}
-      {vitals.spo2<96&&<div style={{margin:'10px 24px 0',padding:'10px 14px',background:'rgba(255,94,94,0.08)',border:'1px solid rgba(255,94,94,0.25)',borderRadius:12,fontSize:12,color:'var(--red)'}}>🩸 Low SpO₂ — iron-rich foods prioritised</div>}
-      {vitals.stress==='High'&&<div style={{margin:'10px 24px 0',padding:'10px 14px',background:'rgba(76,255,176,0.08)',border:'1px solid rgba(76,255,176,0.25)',borderRadius:12,fontSize:12,color:'var(--accent2)'}}>🧘 High stress — low GI prevents cortisol-glucose double spike</div>}
+      {vitals.hr>90 && (
+        <div style={{margin:'10px 24px 0',padding:'10px 14px',background:'rgba(255,179,71,0.08)',border:'1px solid rgba(255,179,71,0.25)',borderRadius:12,fontSize:12,color:'var(--orange)'}}>
+          ⚠️ Elevated HR — low GI meals recommended
+        </div>
+      )}
+      {vitals.spo2<96 && (
+        <div style={{margin:'10px 24px 0',padding:'10px 14px',background:'rgba(255,94,94,0.08)',border:'1px solid rgba(255,94,94,0.25)',borderRadius:12,fontSize:12,color:'var(--red)'}}>
+          🩸 Low SpO₂ — iron-rich foods prioritised
+        </div>
+      )}
+      {vitals.stress==='High' && (
+        <div style={{margin:'10px 24px 0',padding:'10px 14px',background:'rgba(76,255,176,0.08)',border:'1px solid rgba(76,255,176,0.25)',borderRadius:12,fontSize:12,color:'var(--accent2)'}}>
+          🧘 High stress — low GI prevents cortisol-glucose double spike
+        </div>
+      )}
 
       {/* Meal selector */}
       <div style={{ margin:'14px 24px 0', display:'flex', gap:8 }}>
         {MEAL_TIMES.map(t=>(
-          <div key={t} onClick={()=>{setMealType(t);setMeals([]);setExercise(null);setHydration(null);}} style={{
-            flex:1,padding:'10px 4px',borderRadius:14,textAlign:'center',
+          <div key={t} onClick={()=>{ setMealType(t); setMeals([]); setExercise(null); setHydration(null); }} style={{
+            flex:1, padding:'10px 4px', borderRadius:14, textAlign:'center',
             border:`1px solid ${mealType===t?'rgba(182,245,66,0.5)':'var(--card-border)'}`,
             background:mealType===t?'rgba(182,245,66,0.1)':'var(--surface)',
             color:mealType===t?'var(--accent)':'var(--text-muted)',
-            fontFamily:'var(--font-head)',fontWeight:700,fontSize:10,
-            cursor:'pointer',transition:'all 0.2s',textTransform:'uppercase',letterSpacing:'0.04em',
+            fontFamily:'var(--font-head)', fontWeight:700, fontSize:10,
+            cursor:'pointer', transition:'all 0.2s', textTransform:'uppercase', letterSpacing:'0.04em',
           }}>{t}</div>
         ))}
       </div>
@@ -372,38 +396,43 @@ Return ONLY valid JSON, no markdown:
       {/* Generate button */}
       <div style={{ margin:'14px 24px 0' }}>
         <button className="btn-primary" onClick={generate} disabled={loading}
-          style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10}}>
-          {loading?<><div className="spinner"/>Analysing 10 parameters…</>:'✦ Generate My Plan'}
+          style={{display:'flex', alignItems:'center', justifyContent:'center', gap:10}}>
+          {loading ? <><div className="spinner"/>Analysing 10 parameters…</> : '✦ Generate My Plan'}
         </button>
       </div>
 
-      {loading&&<div style={{padding:'0 24px'}}><TypingDots/></div>}
+      {loading && <div style={{padding:'0 24px'}}><TypingDots/></div>}
 
-      {error&&<div style={{margin:'14px 24px 0',background:'rgba(255,94,94,0.08)',border:'1px solid rgba(255,94,94,0.25)',borderRadius:14,padding:'12px 16px',fontSize:12,color:'var(--red)'}}>⚠️ {error}</div>}
+      {error && (
+        <div style={{margin:'14px 24px 0',background:'rgba(255,94,94,0.08)',border:'1px solid rgba(255,94,94,0.25)',borderRadius:14,padding:'12px 16px',fontSize:12,color:'var(--red)'}}>
+          ⚠️ {error}
+        </div>
+      )}
 
       {/* Health Score */}
-      {healthData&&<HealthScoreCard healthData={healthData}/>}
+      {healthData && <HealthScoreCard healthData={healthData}/>}
 
       {/* Meals header */}
-      {meals.length>0&&(
+      {meals.length>0 && (
         <div style={{padding:'16px 24px 8px',fontSize:11,fontFamily:'var(--font-head)',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.1em'}}>
           🍽️ {mealType} Options · {healthData?.tier?.label}
         </div>
       )}
 
       {/* Meal cards */}
-      {meals.map((meal,i)=>{
+      {meals.map((meal,i) => {
         const isLogged = logged.includes(meal.name);
+        // ✅ parsedVitals used here too — glycemic impact scores correctly
         const impact   = calculateGlycemicImpact(meal, vitals, profile);
 
         return (
           <div key={i} className="animate-up" style={{
-            margin:'0 24px 14px',background:'var(--surface)',borderRadius:20,
+            margin:'0 24px 14px', background:'var(--surface)', borderRadius:20,
             border:`1px solid ${isLogged?'rgba(182,245,66,0.4)':'var(--card-border)'}`,
-            overflow:'hidden',animationDelay:`${i*0.08}s`,opacity:isLogged?0.7:1,
+            overflow:'hidden', animationDelay:`${i*0.08}s`, opacity:isLogged?0.7:1,
           }}>
             {/* Food image */}
-            {meal.foodImage?(
+            {meal.foodImage ? (
               <div style={{width:'100%',height:155,position:'relative',overflow:'hidden'}}>
                 <img src={meal.foodImage} alt={meal.name} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
                 <div style={{position:'absolute',inset:0,background:'linear-gradient(to top,rgba(17,25,21,0.95) 0%,rgba(17,25,21,0.2) 55%,transparent 100%)'}}/>
@@ -411,24 +440,23 @@ Return ONLY valid JSON, no markdown:
                   <div style={{fontSize:9,fontFamily:'var(--font-head)',fontWeight:700,color:'var(--accent)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:3}}>Option {i+1}</div>
                   <div style={{fontSize:17,fontFamily:'var(--font-head)',fontWeight:800,color:'#fff',lineHeight:1.2}}>{meal.name}</div>
                 </div>
-                {/* Glycemic impact badge on image */}
                 <div style={{position:'absolute',top:10,left:12,background:'rgba(17,25,21,0.88)',borderRadius:10,padding:'4px 10px',backdropFilter:'blur(8px)',display:'flex',alignItems:'center',gap:5}}>
                   <span style={{fontSize:12}}>{impact.icon}</span>
                   <div style={{fontSize:11,fontFamily:'var(--font-head)',fontWeight:800,color:impact.color}}>{impact.score}</div>
                   <div style={{fontSize:8,color:'var(--text-muted)',fontFamily:'var(--font-head)'}}>GI Impact</div>
                 </div>
                 <div style={{position:'absolute',top:10,right:10,fontSize:26,background:'rgba(17,25,21,0.75)',borderRadius:10,padding:'4px 8px',backdropFilter:'blur(8px)'}}>
-                  {meal.emoji||EMOJIS[i%EMOJIS.length]}
+                  {meal.emoji || EMOJIS[i%EMOJIS.length]}
                 </div>
               </div>
-            ):(
+            ) : (
               <div style={{padding:'18px 18px 0',display:'flex',alignItems:'flex-start',justifyContent:'space-between'}}>
                 <div>
                   <div style={{fontSize:9,fontFamily:'var(--font-head)',fontWeight:700,color:'var(--accent)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:3}}>Option {i+1}</div>
                   <div style={{fontSize:16,fontFamily:'var(--font-head)',fontWeight:800}}>{meal.name}</div>
                 </div>
                 <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2}}>
-                  <span style={{fontSize:28}}>{meal.emoji||EMOJIS[i%EMOJIS.length]}</span>
+                  <span style={{fontSize:28}}>{meal.emoji || EMOJIS[i%EMOJIS.length]}</span>
                   <div style={{fontSize:11,fontFamily:'var(--font-head)',fontWeight:800,color:impact.color}}>{impact.icon} {impact.score}/100</div>
                 </div>
               </div>
@@ -436,7 +464,7 @@ Return ONLY valid JSON, no markdown:
 
             <div style={{padding:'12px 18px 18px'}}>
 
-              {/* ── GLYCEMIC IMPACT CARD ── */}
+              {/* Glycemic Impact Card */}
               <GlycemicImpactCard impact={impact}/>
 
               {/* AI Reason */}
@@ -445,15 +473,15 @@ Return ONLY valid JSON, no markdown:
               </div>
 
               {/* Key nutrient + timing */}
-              {(meal.key_nutrient||meal.best_time)&&(
+              {(meal.key_nutrient || meal.best_time) && (
                 <div style={{display:'flex',gap:8,marginBottom:12}}>
-                  {meal.key_nutrient&&(
+                  {meal.key_nutrient && (
                     <div style={{flex:1,background:'rgba(76,255,176,0.08)',border:'1px solid rgba(76,255,176,0.2)',borderRadius:10,padding:'7px 10px'}}>
                       <div style={{fontSize:7,color:'var(--accent2)',fontFamily:'var(--font-head)',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em'}}>Key Nutrients</div>
                       <div style={{fontSize:11,fontFamily:'var(--font-head)',fontWeight:700,color:'var(--text)',marginTop:2}}>{meal.key_nutrient}</div>
                     </div>
                   )}
-                  {meal.best_time&&(
+                  {meal.best_time && (
                     <div style={{flex:1,background:'rgba(182,245,66,0.06)',border:'1px solid rgba(182,245,66,0.15)',borderRadius:10,padding:'7px 10px'}}>
                       <div style={{fontSize:7,color:'var(--accent)',fontFamily:'var(--font-head)',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em'}}>Timing</div>
                       <div style={{fontSize:11,fontFamily:'var(--font-head)',fontWeight:700,color:'var(--text)',marginTop:2}}>{meal.best_time}</div>
@@ -463,7 +491,7 @@ Return ONLY valid JSON, no markdown:
               )}
 
               {/* Ingredients */}
-              {meal.ingredients&&(
+              {meal.ingredients && (
                 <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:12}}>
                   {meal.ingredients.map(ing=>(
                     <div key={ing} style={{fontSize:10,background:'var(--surface2)',border:'1px solid var(--card-border)',borderRadius:100,padding:'3px 9px',color:'var(--text-muted)'}}>{ing}</div>
@@ -484,13 +512,13 @@ Return ONLY valid JSON, no markdown:
                     <div style={{fontSize:13,fontFamily:'var(--font-head)',fontWeight:800,color:m.color,marginTop:2}}>{m.val}</div>
                   </div>
                 ))}
-                {meal.gi&&(
+                {meal.gi && (
                   <div style={{flex:1,background:'var(--surface2)',borderRadius:10,padding:'8px 4px',textAlign:'center'}}>
                     <div style={{fontSize:7,color:'var(--text-muted)',fontFamily:'var(--font-head)',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em'}}>GI</div>
                     <div style={{fontSize:13,fontFamily:'var(--font-head)',fontWeight:800,color:giColor(meal.gi),marginTop:2}}>{meal.gi}</div>
                   </div>
                 )}
-                {meal.gl&&(
+                {meal.gl && (
                   <div style={{flex:1,background:'var(--surface2)',borderRadius:10,padding:'8px 4px',textAlign:'center'}}>
                     <div style={{fontSize:7,color:'var(--text-muted)',fontFamily:'var(--font-head)',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em'}}>GL</div>
                     <div style={{fontSize:13,fontFamily:'var(--font-head)',fontWeight:800,color:glColor(meal.gl),marginTop:2}}>{meal.gl}</div>
@@ -499,14 +527,14 @@ Return ONLY valid JSON, no markdown:
               </div>
 
               {/* Log button */}
-              <button onClick={()=>!isLogged&&logMeal(meal)} disabled={isLogged} style={{
-                width:'100%',padding:'12px',borderRadius:14,border:'none',
+              <button onClick={()=>!isLogged && logMeal(meal)} disabled={isLogged} style={{
+                width:'100%', padding:'12px', borderRadius:14, border:'none',
                 background:isLogged?'rgba(182,245,66,0.1)':'linear-gradient(135deg,var(--accent),var(--accent2))',
                 color:isLogged?'var(--accent)':'var(--bg)',
-                fontFamily:'var(--font-head)',fontWeight:800,fontSize:13,
-                cursor:isLogged?'default':'pointer',transition:'all 0.2s',
+                fontFamily:'var(--font-head)', fontWeight:800, fontSize:13,
+                cursor:isLogged?'default':'pointer', transition:'all 0.2s',
               }}>
-                {isLogged?'✓ Added to Diary':`+ Log as ${mealType}`}
+                {isLogged ? '✓ Added to Diary' : `+ Log as ${mealType}`}
               </button>
             </div>
           </div>
@@ -514,7 +542,7 @@ Return ONLY valid JSON, no markdown:
       })}
 
       {/* Exercise */}
-      {exercise&&(
+      {exercise && (
         <div style={{margin:'4px 24px 12px'}}>
           <div style={{fontSize:11,fontFamily:'var(--font-head)',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.1em',padding:'8px 0 10px'}}>💪 Exercise Recommendation</div>
           <div className="animate-up" style={{background:'var(--surface)',borderRadius:20,border:'1px solid var(--card-border)',padding:18}}>
@@ -524,7 +552,7 @@ Return ONLY valid JSON, no markdown:
                 <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
                   <span style={{fontSize:10,padding:'3px 10px',borderRadius:100,background:'rgba(182,245,66,0.1)',color:'var(--accent)',fontFamily:'var(--font-head)',fontWeight:700}}>{exercise.duration}</span>
                   <span style={{fontSize:10,padding:'3px 10px',borderRadius:100,background:'var(--surface2)',color:intensityColor(exercise.intensity),fontFamily:'var(--font-head)',fontWeight:700,border:'1px solid var(--card-border)'}}>{exercise.intensity}</span>
-                  {exercise.best_time&&<span style={{fontSize:10,padding:'3px 10px',borderRadius:100,background:'var(--surface2)',color:'var(--text-muted)',fontFamily:'var(--font-head)',fontWeight:600,border:'1px solid var(--card-border)'}}>{exercise.best_time}</span>}
+                  {exercise.best_time && <span style={{fontSize:10,padding:'3px 10px',borderRadius:100,background:'var(--surface2)',color:'var(--text-muted)',fontFamily:'var(--font-head)',fontWeight:600,border:'1px solid var(--card-border)'}}>{exercise.best_time}</span>}
                 </div>
               </div>
               <span style={{fontSize:32}}>🏃</span>
@@ -532,13 +560,13 @@ Return ONLY valid JSON, no markdown:
             <div style={{fontSize:12,color:'var(--text-muted)',lineHeight:1.55,marginBottom:10,background:'var(--surface2)',borderRadius:10,padding:'10px 12px',borderLeft:'2px solid var(--accent2)'}}>
               💡 {exercise.reason}
             </div>
-            {exercise.description&&<div style={{fontSize:12,color:'var(--text-muted)',lineHeight:1.6}}>{exercise.description}</div>}
+            {exercise.description && <div style={{fontSize:12,color:'var(--text-muted)',lineHeight:1.6}}>{exercise.description}</div>}
           </div>
         </div>
       )}
 
       {/* Hydration */}
-      {hydration&&(
+      {hydration && (
         <div style={{margin:'0 24px 12px'}}>
           <div style={{fontSize:11,fontFamily:'var(--font-head)',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.1em',padding:'8px 0 10px'}}>💧 Hydration Guide</div>
           <div className="animate-up" style={{background:'var(--surface)',borderRadius:20,border:'1px solid var(--card-border)',padding:18,display:'flex',gap:14,alignItems:'center'}}>
@@ -546,7 +574,7 @@ Return ONLY valid JSON, no markdown:
             <div style={{flex:1}}>
               <div style={{fontFamily:'var(--font-head)',fontWeight:800,fontSize:18,color:'var(--accent2)'}}>{hydration.target}</div>
               <div style={{fontSize:12,color:'var(--text-muted)',marginTop:4,lineHeight:1.5}}>{hydration.reminder}</div>
-              {hydration.electrolytes&&hydration.electrolytes!=='No'&&(
+              {hydration.electrolytes && hydration.electrolytes!=='No' && (
                 <div style={{marginTop:6,fontSize:11,color:'var(--orange)',fontFamily:'var(--font-head)',fontWeight:600}}>⚡ {hydration.electrolytes}</div>
               )}
             </div>

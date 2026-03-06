@@ -101,13 +101,16 @@ function scoreGI(diary) {
 
 // ================================================================
 // DYNAMIC WEIGHT REDISTRIBUTION — total always = 100
+// Base weight = 10 for each parameter, adjusted based on conditions
 // ================================================================
 function getDynamicWeights(profile, vitals) {
   const diseases = profile?.diseases || [];
   const goal     = profile?.goal     || 'balance';
   const age      = parseInt(profile?.age) || 25;
   const activity = profile?.activity || 'Moderately Active';
+  const allergies = profile?.allergies || [];
 
+  // Medical condition detection
   const hasDiabetes     = diseases.some(d => d.toLowerCase().includes('diabetes'));
   const hasHypertension = diseases.some(d => d.toLowerCase().includes('hypertension'));
   const hasHeartDisease = diseases.some(d => d.toLowerCase().includes('heart'));
@@ -116,34 +119,246 @@ function getDynamicWeights(profile, vitals) {
   const isAthlete       = activity === 'Athlete' || activity === 'Very Active';
   const isOlder         = age > 45;
 
-  const w = { hr:10, spo2:10, hrv:10, stress:10, steps:10, bmi:10, calories:10, medicalRisk:10, goalAlign:10, gi:10 };
+  // ALLERGY-BASED WEIGHT ADJUSTMENTS
+  const hasNutAllergy = allergies.some(a => a.toLowerCase().includes('nut') || a.toLowerCase().includes('peanut'));
+  const hasLactoseIntolerance = allergies.some(a => a.toLowerCase().includes('lactose') || a.toLowerCase().includes('dairy'));
+  const hasGlutenAllergy = allergies.some(a => a.toLowerCase().includes('gluten') || a.toLowerCase().includes('wheat'));
 
-  function transfer(from, to, amount) {
-    const actual = Math.min(amount, w[from] - 3);
-    if (actual <= 0) return;
-    w[from] -= actual;
-    w[to]   += actual;
+  // BASE WEIGHTS - exactly 10 for each parameter
+  let w = { 
+    hr:10, spo2:10, hrv:10, stress:10, steps:10, 
+    bmi:10, calories:10, medicalRisk:10, goalAlign:10, gi:10 
+  };
+
+  // MEDICAL CONDITION WEIGHT ADJUSTMENTS
+  // Heart disease: increase heart-related weights, decrease others
+  if (hasHeartDisease) {
+    w.hr += 5;        // Heart rate becomes critical
+    w.spo2 += 3;      // Blood oxygen important
+    w.gi += 2;        // Glycemic impact affects heart
+    // Decrease others to maintain balance
+    w.steps -= 3;
+    w.bmi -= 2;
+    w.calories -= 2;
+    w.goalAlign -= 3;
   }
 
-  if (hasHeartDisease)  { transfer('gi','hr',5);       transfer('steps','stress',5); }
-  if (hasHypertension)  { transfer('gi','hr',5);        transfer('goalAlign','stress',5); }
-  if (hasDiabetes)      { transfer('hrv','gi',5);       transfer('steps','calories',5); }
-  if (hasPCOS)          { transfer('hrv','bmi',5);      transfer('gi','calories',5); }
-  if (hasThyroid)       { transfer('gi','calories',5);  transfer('steps','bmi',5); }
-  if (goal==='weightloss'){ transfer('medicalRisk','calories',5); transfer('hrv','steps',5); transfer('gi','bmi',3); }
-  if (goal==='muscle')    { transfer('gi','calories',5); transfer('bmi','goalAlign',5); }
-  if (goal==='energy')    { transfer('bmi','hrv',5);    transfer('gi','stress',5); }
-  if (goal==='recovery')  { transfer('calories','hrv',5); transfer('gi','stress',5); transfer('bmi','steps',3); }
-  if (isOlder)  { transfer('steps','hr',5); transfer('goalAlign','spo2',5); transfer('gi','medicalRisk',3); }
-  if (isAthlete){ transfer('medicalRisk','hrv',5); transfer('bmi','steps',5); }
-  if (vitals.hr > 90)           transfer('gi','hr',5);
-  if (vitals.spo2 < 96)         transfer('goalAlign','spo2',5);
-  if (vitals.hrv < 35)          transfer('bmi','hrv',5);
-  if (vitals.stress === 'High') transfer('gi','stress',5);
+  // Diabetes: prioritize glucose management
+  if (hasDiabetes) {
+    w.gi += 5;         // Glycemic index critical
+    w.calories += 3;   // Calorie management important
+    w.hrv += 2;       // HRV affects glucose regulation
+    // Decrease others
+    w.steps -= 3;
+    w.bmi -= 2;
+    w.stress -= 2;
+    w.medicalRisk -= 2;
+  }
 
-  // Ensure exactly 100
+  // Hypertension: focus on heart and stress
+  if (hasHypertension) {
+    w.hr += 5;         // Heart rate monitoring critical
+    w.stress += 3;     // Stress affects blood pressure
+    w.spo2 += 2;      // Oxygen important
+    // Decrease others
+    w.gi -= 3;
+    w.steps -= 2;
+    w.calories -= 2;
+    w.bmi -= 2;
+  }
+
+  // PCOS: focus on hormones and weight
+  if (hasPCOS) {
+    w.bmi += 5;        // Weight management critical
+    w.gi += 3;         // Insulin resistance management
+    w.hrv += 2;        // Hormonal balance
+    // Decrease others
+    w.steps -= 3;
+    w.calories -= 2;
+    w.stress -= 2;
+    w.goalAlign -= 2;
+  }
+
+  // Thyroid: metabolism and weight focus
+  if (hasThyroid) {
+    w.calories += 5;   // Metabolism management
+    w.bmi += 3;        // Weight monitoring
+    w.steps += 2;      // Activity affects thyroid
+    // Decrease others
+    w.gi -= 3;
+    w.hr -= 2;
+    w.stress -= 2;
+    w.medicalRisk -= 2;
+  }
+
+  // ALLERGY-BASED ADJUSTMENTS
+  if (hasNutAllergy) {
+    w.medicalRisk += 4;  // Allergy risk increases
+    w.gi += 3;           // Need careful food selection
+    w.goalAlign += 3;     // Alignment with restrictions critical
+    // Decrease others
+    w.steps -= 2;
+    w.bmi -= 2;
+    w.calories -= 2;
+    w.hr -= 2;
+    w.spo2 -= 2;
+  }
+
+  if (hasLactoseIntolerance) {
+    w.medicalRisk += 3;  // Dietary restrictions
+    w.calories += 4;     // Need alternative calcium sources
+    w.goalAlign += 3;     // Meal planning critical
+    // Decrease others
+    w.gi -= 2;
+    w.steps -= 2;
+    w.bmi -= 2;
+    w.stress -= 2;
+    w.hrv -= 2;
+  }
+
+  if (hasGlutenAllergy) {
+    w.medicalRisk += 3;  // Celiac considerations
+    w.gi += 4;           // Gluten-free affects glycemic response
+    w.goalAlign += 3;     // Meal planning essential
+    // Decrease others
+    w.calories -= 2;
+    w.steps -= 2;
+    w.bmi -= 2;
+    w.stress -= 2;
+    w.hrv -= 2;
+  }
+
+  // GOAL-BASED ADJUSTMENTS
+  if (goal === 'weightloss') {
+    w.calories += 5;   // Calorie deficit critical
+    w.bmi += 3;        // Weight tracking important
+    w.steps += 2;      // Activity for weight loss
+    // Decrease others
+    w.gi -= 3;
+    w.hr -= 2;
+    w.stress -= 2;
+    w.medicalRisk -= 2;
+  }
+
+  if (goal === 'muscle') {
+    w.calories += 5;   // Calorie surplus needed
+    w.steps += 3;      // Resistance training
+    w.protein = 5;     // Protein intake critical (new parameter)
+    // Decrease others
+    w.gi -= 3;
+    w.bmi -= 2;
+    w.stress -= 2;
+    w.hrv -= 2;
+  }
+
+  if (goal === 'energy') {
+    w.calories += 4;   // Energy availability
+    w.hr += 3;         // Heart rate for performance
+    w.steps += 3;      // Activity for energy
+    // Decrease others
+    w.gi -= 2;
+    w.bmi -= 2;
+    w.stress -= 2;
+    w.medicalRisk -= 2;
+    w.hrv -= 2;
+  }
+
+  if (goal === 'recovery') {
+    w.hrv += 5;        // Recovery monitoring critical
+    w.stress += 3;     // Stress management
+    w.spo2 += 2;      // Oxygen for recovery
+    // Decrease others
+    w.gi -= 3;
+    w.steps -= 2;
+    w.calories -= 2;
+    w.bmi -= 2;
+    w.hr -= 2;
+  }
+
+  // AGE-BASED ADJUSTMENTS
+  if (isOlder) {
+    w.medicalRisk += 4;  // Age-related health risks
+    w.hr += 3;           // Heart monitoring
+    w.spo2 += 3;         // Oxygen monitoring
+    // Decrease others
+    w.steps -= 3;
+    w.gi -= 2;
+    w.calories -= 2;
+    w.stress -= 2;
+    w.bmi -= 2;
+  }
+
+  // ACTIVITY-BASED ADJUSTMENTS
+  if (isAthlete) {
+    w.hr += 4;         // Performance heart rate
+    w.steps += 4;      // Training volume
+    w.calories += 2;   // Energy needs
+    // Decrease others
+    w.medicalRisk -= 3;
+    w.bmi -= 2;
+    w.gi -= 2;
+    w.stress -= 2;
+    w.hrv -= 1;
+  }
+
+  // VITALS-BASED REAL-TIME ADJUSTMENTS
+  if (vitals.hr > 90) {
+    w.hr += 3;         // Elevated heart rate needs attention
+    w.stress += 2;     // Stress affects heart rate
+    // Decrease others
+    w.gi -= 2;
+    w.steps -= 1;
+    w.calories -= 1;
+    w.bmi -= 1;
+  }
+
+  if (vitals.spo2 < 96) {
+    w.spo2 += 4;       // Low oxygen needs attention
+    w.medicalRisk += 3; // Health risk increases
+    // Decrease others
+    w.gi -= 2;
+    w.steps -= 2;
+    w.calories -= 1;
+    w.bmi -= 1;
+    w.stress -= 1;
+  }
+
+  if (vitals.hrv < 35) {
+    w.hrv += 5;        // Low HRV critical for recovery
+    w.stress += 3;     // Stress affects HRV
+    // Decrease others
+    w.gi -= 3;
+    w.steps -= 2;
+    w.calories -= 2;
+    w.bmi -= 1;
+  }
+
+  if (vitals.stress === 'High') {
+    w.stress += 4;     // High stress needs management
+    w.hrv += 3;        // HRV affected by stress
+    // Decrease others
+    w.gi -= 2;
+    w.steps -= 2;
+    w.calories -= 1;
+    w.bmi -= 1;
+    w.hr -= 1;
+  }
+
+  // ENSURE TOTAL WEIGHT = 100 (normalization)
   const total = Object.values(w).reduce((a, b) => a + b, 0);
-  if (total !== 100) w.goalAlign += (100 - total);
+  if (total !== 100) {
+    const factor = 100 / total;
+    // Scale all weights proportionally to maintain 100 total
+    Object.keys(w).forEach(key => {
+      w[key] = Math.round(w[key] * factor);
+    });
+    
+    // Final adjustment to ensure exactly 100
+    const finalTotal = Object.values(w).reduce((a, b) => a + b, 0);
+    if (finalTotal !== 100) {
+      w.goalAlign += (100 - finalTotal);
+    }
+  }
 
   return w;
 }
@@ -169,7 +384,7 @@ export function calculateHealthScore(profile, vitals, diary = []) {
 
   let weightedSum = 0;
   for (const key of Object.keys(scores)) weightedSum += scores[key] * (w[key] || 10);
-  const percentage = Math.round(weightedSum / 100);
+  const percentage = Math.round(weightedSum);
 
   const LABELS = {
     hr:'❤️ Heart Rate', spo2:'🫁 Blood Oxygen', hrv:'🧬 HRV',
@@ -348,34 +563,9 @@ export function calculateGlycemicImpact(meal, vitals, profile) {
   const icon     = score>=80?'🟢':score>=65?'🟡':score>=45?'🟠':score>=25?'🔴':'⛔';
 
   // Generate comparison insight
-  const insight = generateInsight(score, gi, gl, protein, isDiabetic, hasPCOS, vitals, goal);
-
-  return { score, label, color, icon, breakdown, insight };
+  return { score, label, color, icon, breakdown };
 }
 
-function generateInsight(score, gi, gl, protein, isDiabetic, hasPCOS, vitals, goal) {
-  if (score >= 80) {
-    if (isDiabetic) return 'Ideal for diabetes — low GI prevents blood sugar spikes while providing sustained energy.';
-    if (vitals.stress === 'High') return 'Perfect for high-stress days — slow glucose release counters cortisol-driven spikes.';
-    return 'Excellent glycemic profile — your body will absorb this efficiently without energy crashes.';
-  }
-  if (score >= 65) {
-    if (gl > 15) return 'Good choice but moderate carb load — pair with a walk after eating to reduce glucose impact.';
-    return 'Good glycemic impact — this meal supports steady energy without major insulin spikes.';
-  }
-  if (score >= 45) {
-    if (gi === 'Medium') return 'Fair impact — add curd or a handful of nuts alongside to buffer the glucose absorption.';
-    return 'Moderate glycemic impact — consider reducing portion size by 20% to lower the overall load.';
-  }
-  if (score >= 25) {
-    if (isDiabetic) return '⚠️ Not recommended for diabetes — this meal may cause significant blood glucose elevation.';
-    return 'Poor glycemic impact — this meal may cause energy crashes 1-2 hours after eating.';
-  }
-  return '⛔ High glycemic risk for your current health state — consider one of the other options.';
-}
-
-// ================================================================
-// TIER CLASSIFIER
 // ================================================================
 export function getHealthTier(percentage) {
   if (percentage >= 85) return { tier:'PEAK',     label:'Peak Performance', color:'#b6f542', icon:'🏆', description:'Your body is in optimal state today.' };
@@ -452,4 +642,286 @@ EXERCISE STRATEGY: NO exercise. Complete rest.
 TONE: Serious but calm.`,
   };
   return prompts[tier] || prompts.MODERATE;
+}
+
+// ================================================================
+// AI PROMPT GENERATOR BASED ON WEIGHT ANALYSIS & SCORE RANGES
+// Exclusive prompts based on weighted parameter importance
+// ================================================================
+export function generateTierPrompt(percentage, profile, vitals, breakdown) {
+  const diseases = profile?.diseases || [];
+  const goal = profile?.goal || 'balance';
+  const age = parseInt(profile?.age) || 25;
+  const allergies = profile?.allergies || [];
+  
+  // Analyze highest weighted parameters
+  const topWeights = breakdown.sort((a, b) => b.weight - a.weight).slice(0, 3);
+  const topParameters = topWeights.map(w => w.label).join(', ');
+  const criticalIssues = breakdown.filter(b => b.score < 60).map(b => b.label).join(', ');
+  
+  // Medical condition context
+  const hasDiabetes = diseases.some(d => d.toLowerCase().includes('diabetes'));
+  const hasHeartDisease = diseases.some(d => d.toLowerCase().includes('heart'));
+  const hasHypertension = diseases.some(d => d.toLowerCase().includes('hypertension'));
+  const hasPCOS = diseases.some(d => d.toLowerCase().includes('pcos'));
+  const hasThyroid = diseases.some(d => d.toLowerCase().includes('thyroid'));
+  
+  // Allergy context
+  const hasNutAllergy = allergies.some(a => a.toLowerCase().includes('nut'));
+  const hasLactoseIntolerance = allergies.some(a => a.toLowerCase().includes('lactose'));
+  const hasGlutenAllergy = allergies.some(a => a.toLowerCase().includes('gluten'));
+  
+  // Vitals context
+  const elevatedHR = vitals.hr > 90;
+  const lowSpO2 = vitals.spo2 < 96;
+  const lowHRV = vitals.hrv < 35;
+  const highStress = vitals.stress === 'High';
+  
+  // Generate exclusive prompts based on score ranges
+  if (percentage >= 90) {
+    return `
+=================================================================
+ELITE HEALTH MODE: ${percentage}/100 — 🏆 OPTIMAL PERFORMANCE
+=================================================================
+TOP PARAMETERS: ${topParameters}
+MEDICAL PROFILE: ${diseases.length > 0 ? diseases.join(', ') : 'None'}
+ALLERGIES: ${allergies.length > 0 ? allergies.join(', ') : 'None'}
+
+🎯 EXCLUSIVE STRATEGY:
+You are in elite health territory. Your body is operating at peak efficiency.
+Focus on performance optimization, nutrient timing, and athletic nutrition.
+
+NUTRITION STRATEGY — PERFORMANCE OPTIMIZATION:
+${hasDiabetes ? '- DIABETES ELITE: Maintain perfect glucose control with precision carb timing' : ''}
+${hasHeartDisease ? '- CARDIO ELITE: Heart-healthy performance nutrition with optimal omega-3 ratio' : ''}
+- Macronutrient precision: Protein ${goal === 'muscle' ? '2.2g/kg' : '1.6g/kg'} for performance
+- Nutrient timing: Pre-workout carbs 90min before, post-workout protein within 30min
+- Hydration: 30-35ml/kg body weight with electrolyte optimization
+- Micronutrient focus: Iron, B12, Vitamin D for energy metabolism
+
+EXERCISE STRATEGY — PEAK PERFORMANCE:
+${elevatedHR ? '- HR OPTIMIZATION: Focus on zone 2 training for cardiovascular efficiency' : ''}
+${lowHRV ? '- RECOVERY ELITE: Active recovery, mobility, sleep optimization' : ''}
+- High-intensity interval training 2x/week
+- Strength training 3-4x/week with progressive overload
+- Recovery protocols: Cryotherapy, compression, sleep 7-9h
+
+AI PROMPT FOCUS:
+"Generate elite performance meal plans with precise macronutrient timing, micronutrient optimization, and advanced sports nutrition strategies. Focus on nutrient density, anti-inflammatory compounds, and recovery nutrition."
+
+TONE: Performance-focused, scientific, motivating.
+=================================================================`;
+  }
+  
+  if (percentage >= 80) {
+    return `
+=================================================================
+EXCELLENT HEALTH MODE: ${percentage}/100 — ✅ VITALITY OPTIMIZED
+=================================================================
+TOP PARAMETERS: ${topParameters}
+CRITICAL ISSUES: ${criticalIssues || 'None'}
+MEDICAL PROFILE: ${diseases.length > 0 ? diseases.join(', ') : 'None'}
+
+🎯 EXCLUSIVE STRATEGY:
+Excellent health with minor optimization opportunities. 
+Focus on maintaining current status while addressing specific parameter needs.
+
+NUTRITION STRATEGY — MAINTENANCE & OPTIMIZATION:
+${hasDiabetes ? '- DIABETES EXCELLENCE: Continue low GI excellence with advanced carb cycling' : ''}
+${hasHeartDisease ? '- HEART HEALTH: Maintain cardiovascular nutrition with Mediterranean principles' : ''}
+${hasPCOS ? '- PCOS CONTROL: Hormone balancing nutrition with insulin sensitivity focus' : ''}
+- Consistent meal timing: 3 main meals + 1-2 strategic snacks
+- Glycemic control: Low-medium GI foods, fiber 25-35g/day
+- Protein distribution: 20-30g per meal for muscle synthesis
+- Healthy fats: Omega-3 rich foods 2-3x/week
+
+EXERCISE STRATEGY — CONSISTENT EXCELLENCE:
+${elevatedHR ? '- HR MANAGEMENT: Maintain cardiovascular fitness with zone 2 emphasis' : ''}
+${lowSpO2 ? '- OXYGEN OPTIMIZATION: Breathing exercises, aerobic conditioning' : ''}
+- Consistent activity: 150-300min moderate intensity weekly
+- Strength maintenance: 2-3x/week full body training
+- Active recovery: Walking, yoga, stretching 3-4x/week
+
+AI PROMPT FOCUS:
+"Generate excellent health maintenance plans with nutrient timing, glycemic optimization, and lifestyle integration. Focus on sustainable nutrition, energy balance, and preventive health."
+
+TONE: Encouraging, educational, sustainable.
+=================================================================`;
+  }
+  
+  if (percentage >= 65) {
+    return `
+=================================================================
+GOOD HEALTH MODE: ${percentage}/100 — 🟢 STABLE & IMPROVING
+=================================================================
+TOP PARAMETERS: ${topParameters}
+NEEDS ATTENTION: ${criticalIssues}
+MEDICAL CONDITIONS: ${diseases.length > 0 ? diseases.join(', ') : 'None'}
+ALLERGIES: ${allergies.length > 0 ? allergies.join(', ') : 'None'}
+
+🎯 EXCLUSIVE STRATEGY:
+Good health foundation with specific areas needing targeted improvement.
+Focus on addressing weak parameters while maintaining strengths.
+
+NUTRITION STRATEGY — TARGETED IMPROVEMENT:
+${hasDiabetes ? '- DIABETES FOCUS: Strict glycemic control with carb counting and timing' : ''}
+${hasHeartDisease ? '- HEART FOCUS: Sodium restriction, healthy fats, portion control' : ''}
+${hasHypertension ? '- BP FOCUS: DASH diet principles, potassium-rich foods, low sodium' : ''}
+${hasPCOS ? '- PCOS FOCUS: Insulin resistance management, hormone balance nutrition' : ''}
+${hasNutAllergy ? '- ALLERGY SAFE: Nut-free alternatives with adequate protein and healthy fats' : ''}
+${hasLactoseIntolerance ? '- LACTOSE FREE: Calcium-rich alternatives, vitamin D optimization' : ''}
+${hasGlutenAllergy ? '- GLUTEN FREE: Balanced nutrition with iron, B12, fiber focus' : ''}
+- Address ${criticalIssues}: Specific nutritional interventions
+- Meal structure: Regular timing, portion control, balanced macros
+- Fiber increase: 5-10g more daily for satiety and glucose control
+- Hydration: 2-3L daily with electrolyte balance
+
+EXERCISE STRATEGY — CONDITIONING:
+${elevatedHR ? '- CARDIO CONDITIONING: Gradual intensity increase, heart rate monitoring' : ''}
+${lowSpO2 ? '- OXYGEN BUILDING: Breathing exercises, gradual aerobic conditioning' : ''}
+${lowHRV ? '- RECOVERY BUILDING: Stress management, sleep hygiene, gentle movement' : ''}
+${highStress ? '- STRESS REDUCTION: Yoga, meditation, nature walks, mindful movement' : ''}
+- Progressive program: Start where you are, build gradually
+- Consistency over intensity: 150min moderate weekly minimum
+- Strength foundation: 2x/week basic movements, proper form
+
+AI PROMPT FOCUS:
+"Generate good health improvement plans targeting ${criticalIssues} with medical condition awareness, allergy safety, and progressive lifestyle changes. Focus on sustainable habits, education, and gradual improvement."
+
+TONE: Supportive, educational, progressive.
+=================================================================`;
+  }
+  
+  if (percentage >= 45) {
+    return `
+=================================================================
+MODERATE HEALTH MODE: ${percentage}/100 — ⚡ NEEDS ATTENTION
+=================================================================
+PRIORITY PARAMETERS: ${topParameters}
+CRITICAL ISSUES: ${criticalIssues}
+MEDICAL CONDITIONS: ${diseases.length > 0 ? diseases.join(', ') : 'None'}
+ALLERGIES: ${allergies.length > 0 ? allergies.join(', ') : 'None'}
+
+🎯 EXCLUSIVE STRATEGY:
+Multiple health parameters need attention. Focus on foundational improvements
+while managing medical conditions and preventing further decline.
+
+NUTRITION STRATEGY — FOUNDATIONAL REBUILD:
+${hasDiabetes ? '- DIABETES URGENT: Strict glycemic control, medication coordination, education' : ''}
+${hasHeartDisease ? '- HEART URGENT: Cardiac rehabilitation diet, strict medical supervision' : ''}
+${hasHypertension ? '- BP URGENT: Intensive DASH protocol, medication coordination' : ''}
+${hasPCOS ? '- PCOS URGENT: Intensive hormone management, fertility nutrition' : ''}
+${hasThyroid ? '- THYROID URGENT: Thyroid-specific nutrition, medication timing' : ''}
+${hasNutAllergy ? '- ALLERGY CRITICAL: Strict avoidance protocols, emergency planning' : ''}
+${hasLactoseIntolerance ? '- LACTOSE CRITICAL: Complete avoidance, nutrient deficiency prevention' : ''}
+${hasGlutenAllergy ? '- CELIAC CRITICAL: Strict healing protocol, nutrient monitoring' : ''}
+- Priority focus: ${criticalIssues} - immediate intervention needed
+- Meal rehabilitation: 3 balanced meals, no skipping, portion control
+- Blood sugar stabilization: Low GI every 3-4 hours, protein at each meal
+- Nutrient density: Maximum nutrition per calorie, whole foods focus
+- Hydration protocol: 2.5L minimum, electrolyte balance
+
+EXERCISE STRATEGY — GENTLE REBUILD:
+${elevatedHR ? '- HR REHABILITATION: Medical clearance, very light activity, monitoring' : ''}
+${lowSpO2 ? '- OXYGEN REHABILITATION: Breathing exercises, seated activities, medical supervision' : ''}
+${lowHRV ? '- RECOVERY REHABILITATION: Gentle movement, stress reduction, sleep priority' : ''}
+${highStress ? '- STRESS REHABILITATION: Professional mental health support, gentle therapies' : ''}
+- Medical clearance required before starting
+- Begin with 10-15min gentle walking, progress slowly
+- Focus on activities of daily living, gradual progression
+- Include flexibility, balance, breathing exercises
+
+AI PROMPT FOCUS:
+"Generate moderate health rehabilitation plans addressing ${criticalIssues} with medical condition management, allergy safety, and gentle progression. Focus on education, habit building, and sustainable lifestyle changes with medical supervision."
+
+TONE: Caring, cautious, educational, medically aware.
+=================================================================`;
+  }
+  
+  if (percentage >= 25) {
+    return `
+=================================================================
+LOW HEALTH MODE: ${percentage}/100 — 🛡️ RECOVERY REQUIRED
+=================================================================
+CRITICAL PARAMETERS: ${topParameters}
+URGENT ISSUES: ${criticalIssues}
+MEDICAL CONDITIONS: ${diseases.length > 0 ? diseases.join(', ') : 'None'}
+ALLERGIES: ${allergies.length > 0 ? allergies.join(', ') : 'None'}
+
+🎯 EXCLUSIVE STRATEGY:
+Significant health issues requiring immediate attention and medical supervision.
+Focus on stabilization, recovery, and preventing further decline.
+
+NUTRITION STRATEGY — MEDICAL NUTRITION THERAPY:
+${hasDiabetes ? '- DIABETES CRITICAL: Intensive glucose management, medical nutrition therapy' : ''}
+${hasHeartDisease ? '- HEART CRITICAL: Cardiac rehabilitation diet, strict medical supervision' : ''}
+${hasHypertension ? '- BP CRITICAL: Intensive DASH protocol, medication coordination' : ''}
+${hasPCOS ? '- PCOS CRITICAL: Intensive hormone management, fertility nutrition' : ''}
+${hasThyroid ? '- THYROID CRITICAL: Thyroid-specific nutrition, medication timing' : ''}
+${hasNutAllergy ? '- ALLERGY EMERGENCY: Strict avoidance protocols, emergency planning' : ''}
+${hasLactoseIntolerance ? '- LACTOSE EMERGENCY: Complete avoidance, nutrient deficiency prevention' : ''}
+${hasGlutenAllergy ? '- CELIAC EMERGENCY: Strict healing protocol, nutrient monitoring' : ''}
+- Medical supervision essential for all nutrition changes
+- Therapeutic nutrition: Address ${criticalIssues} with clinical precision
+- Meal timing: Every 2-3 hours for glucose stability
+- Nutrient rehabilitation: Correct deficiencies, support healing
+- Anti-inflammatory focus: Reduce systemic inflammation, support recovery
+
+EXERCISE STRATEGY — MEDICAL REHABILITATION:
+${elevatedHR ? '- CARDIAC REHABILITATION: Medically supervised, very light progression' : ''}
+${lowSpO2 ? '- RESPIRATORY REHABILITATION: Breathing therapy, oxygen monitoring' : ''}
+${lowHRV ? '- AUTONOMIC REHABILITATION: Nervous system regulation, very gentle movement' : ''}
+${highStress ? '- STRESS REHABILITATION: Professional mental health support, gentle therapies' : ''}
+- Medical clearance and supervision mandatory
+- Start with 5-10min gentle movement, bed exercises if needed
+- Focus on activities of daily living, gradual progression
+- Include breathing, gentle stretching, seated exercises
+
+AI PROMPT FOCUS:
+"Generate critical health recovery plans with medical nutrition therapy addressing ${criticalIssues}. Focus on clinical precision, safety protocols, professional coordination, and gentle rehabilitation. All recommendations must be medically supervised."
+
+TONE: Clinical, cautious, supportive, safety-focused.
+=================================================================`;
+  }
+  
+  // CRITICAL HEALTH MODE (<25)
+  return `
+=================================================================
+CRITICAL HEALTH MODE: ${percentage}/100 — 🚨 MEDICAL INTERVENTION NEEDED
+=================================================================
+CRITICAL PARAMETERS: ${topParameters}
+MEDICAL EMERGENCIES: ${criticalIssues}
+MEDICAL CONDITIONS: ${diseases.length > 0 ? diseases.join(', ') : 'None'}
+ALLERGIES: ${allergies.length > 0 ? allergies.join(', ') : 'None'}
+
+🎯 EXCLUSIVE STRATEGY:
+CRITICAL health status requiring immediate medical intervention.
+This is beyond lifestyle modification - medical treatment essential.
+
+NUTRITION STRATEGY — CLINICAL INTERVENTION:
+${hasDiabetes ? '- DIABETES EMERGENCY: Immediate medical care, possible hospitalization' : ''}
+${hasHeartDisease ? '- HEART EMERGENCY: Immediate cardiac care, possible hospitalization' : ''}
+${hasHypertension ? '- BP EMERGENCY: Immediate medical attention, medication adjustment' : ''}
+${hasPCOS ? '- PCOS EMERGENCY: Immediate endocrine intervention, fertility preservation' : ''}
+${hasThyroid ? '- THYROID EMERGENCY: Immediate thyroid care, hormone crisis management' : ''}
+${hasNutAllergy ? '- ALLERGY EMERGENCY: EpiPen availability, emergency protocols' : ''}
+${hasLactoseIntolerance ? '- NUTRITION EMERGENCY: Deficiency correction, medical nutrition therapy' : ''}
+${hasGlutenAllergy ? '- CELIAC EMERGENCY: Healing protocol, malnutrition prevention' : ''}
+- SEEK IMMEDIATE MEDICAL ATTENTION
+- This requires hospitalization or emergency medical care
+- Nutrition only supportive to medical treatment
+- Focus on stabilization, not optimization
+
+EXERCISE STRATEGY — MEDICAL REST:
+- COMPLETE REST until medically cleared
+- Only activities medically approved
+- Focus on basic activities of daily living
+- No exercise without explicit medical approval
+
+AI PROMPT FOCUS:
+"Generate emergency medical support information with immediate action steps, emergency contacts, and safety protocols. This requires medical intervention, not lifestyle changes."
+
+TONE: Urgent, medical, safety-focused, directive.
+=================================================================
+`;
 }

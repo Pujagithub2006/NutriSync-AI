@@ -28,17 +28,17 @@ function clamp(val, min, max) {
 // Enhanced vitals hook with Python backend integration
 export function useVitalsEnhanced() {
   const [vitals, setVitals] = useState({
-    hr:     getBaseHR(),
-    spo2:   97,
-    hrv:     65,
+    hr:     Math.round(getBaseHR()),
+    spo2:   parseFloat((97).toFixed(1)),
+    hrv:     parseFloat((65).toFixed(1)),
     stress:  'Moderate',
     activity: 'Moderately Active',
     steps:   getBaseSteps(),
     calories: 1800,
-    sleep:    7.5,
+    sleep:    parseFloat((7.5).toFixed(1)),
   });
 
-  const [useRealData, setUseRealData] = useState(true); // Start with real data by default
+  const [useRealData, setUseRealData] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -49,20 +49,21 @@ export function useVitalsEnhanced() {
       setError(null);
 
       try {
-        const response = await fetch('http://localhost:5000/api/vitals-realtime');
+        const response = await fetch('http://localhost:5000/v1/physiology/vitals-realtime');
         if (response.ok) {
           const data = await response.json();
           
           // Transform Python backend data to our format
+          const rawSpo2 = data.spo2 || 97;
           setVitals({
-            hr: data.heart_rate_bpm || getBaseHR(),
-            spo2: data.spo2 || 97,
-            hrv: data.hrv_ms || 65,
-            stress: data.physio_state || 'Moderate',
-            activity: 'Moderately Active', // Would come from user profile
-            steps: data.steps || getBaseSteps(),
-            calories: data.active_calories || 1800,
-            sleep: data.sleep_hours || 7.5,
+            hr:       Math.min(200, Math.max(40, Math.round(data.heart_rate_bpm || getBaseHR()))),
+            spo2:     Math.min(100, Math.max(90, parseFloat((rawSpo2 < 1 ? rawSpo2 * 100 : rawSpo2).toFixed(1)))),
+            hrv:      Math.min(120, Math.max(20, parseFloat((data.hrv_ms || 65).toFixed(1)))),
+            stress:   ['Low','Moderate','High'].includes(data.physio_state) ? data.physio_state : 'Moderate',
+            activity: 'Moderately Active',
+            steps:    Math.max(0, data.steps || getBaseSteps()),
+            calories: Math.max(0, data.active_calories || 1800),
+            sleep:    Math.min(24, Math.max(0, parseFloat((data.sleep_hours || 7.5).toFixed(1)))),
           });
           setUseRealData(true); // Successfully got real data
         } else {
@@ -74,14 +75,14 @@ export function useVitalsEnhanced() {
         
         // Fall back to simulated data
         setVitals({
-          hr: getBaseHR(),
-          spo2: 97,
-          hrv: 65,
+          hr: Math.round(getBaseHR()),
+          spo2: parseFloat((97).toFixed(1)),
+          hrv: parseFloat((65).toFixed(1)),
           stress: 'Moderate',
           activity: 'Moderately Active',
           steps: getBaseSteps(),
           calories: 1800,
-          sleep: 7.5,
+          sleep: parseFloat((7.5).toFixed(1)),
         });
         setUseRealData(false); // Using simulated data
       } finally {
@@ -105,9 +106,9 @@ export function useVitalsEnhanced() {
     const interval = setInterval(() => {
       setVitals(v => ({
         ...v,
-        hr: clamp(v.hr + (Math.random() - 0.5) * 4, 55, 100),
-        spo2: clamp(v.spo2 + (Math.random() - 0.5) * 2, 94, 100),
-        hrv: clamp(v.hrv + (Math.random() - 0.5) * 8, 20, 120),
+        hr: Math.round(clamp(v.hr + (Math.random() - 0.5) * 4, 55, 100)),
+        spo2: parseFloat(clamp(v.spo2 + (Math.random() - 0.5) * 2, 94, 100).toFixed(1)),
+        hrv: parseFloat(clamp(v.hrv + (Math.random() - 0.5) * 8, 20, 120).toFixed(1)),
         steps: v.steps + Math.floor(Math.random() * 50),
         calories: v.calories + Math.floor(Math.random() * 20),
       }));

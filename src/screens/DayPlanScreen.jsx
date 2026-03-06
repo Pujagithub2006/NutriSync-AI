@@ -85,7 +85,7 @@ Daily Calorie Target: ${kcalGoal} kcal
 =================================================================
 MORNING VITALS (basis for full day plan)
 =================================================================
-❤️ HR: ${vitals.hr} BPM | 🫁 SpO₂: ${vitals.spo2}% | 🧠 HRV: ${vitals.hrv}ms
+❤️ HR: ${Math.round(vitals.hr)} BPM | 🫁 SpO₂: ${parseFloat(vitals.spo2).toFixed(1)}% | 🧠 HRV: ${parseFloat(vitals.hrv).toFixed(1)}ms
 📊 Stress: ${vitals.stress} | 👣 Steps: ${vitals.steps} | ⚡ Activity: ${vitals.activity}
 Mode: ${isRecoveryMode ? 'RECOVERY — anti-inflammatory focus' : 'PERFORMANCE — energy and macros focus'}
 
@@ -229,9 +229,9 @@ Return ONLY valid JSON, no markdown:
         <div style={{ fontSize:9, fontFamily:'var(--font-head)', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:8 }}>Planning based on your vitals</div>
         <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
           {[
-            { label:`❤️ ${vitals.hr} BPM`, hi:true },
-            { label:`🫁 ${vitals.spo2}%`, hi:true },
-            { label:`🧬 HRV ${vitals.hrv}ms` },
+            { label:`❤️ ${Math.round(vitals.hr)} BPM`, hi:true },
+            { label:`🫁 ${parseFloat(vitals.spo2).toFixed(1)}%`, hi:true },
+            { label:`🧬 HRV ${parseFloat(vitals.hrv).toFixed(1)}ms` },
             { label:`🧠 ${vitals.stress} stress`, hi: vitals.stress === 'High' },
             { label:`⚡ ${vitals.activity}` },
           ].map(c => (

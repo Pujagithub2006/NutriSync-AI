@@ -127,6 +127,19 @@ async def get_state(
         base_calories=target["base_target"],
     )
 
+@router.get("/vitals-realtime")
+async def vitals_realtime(db: AsyncSession = Depends(get_db)):
+    # Returns latest log without auth for frontend use
+    log_result = await db.execute(
+        select(PhysiologicalLog)
+        .order_by(PhysiologicalLog.logged_at.desc())
+        .limit(1)
+    )
+    log = log_result.scalars().first()
+    if not log:
+        raise HTTPException(status_code=404, detail="No data")
+    return log
+
 
 @router.get("/history", response_model=list[PhysioResponse])
 async def get_history(

@@ -60,5 +60,5 @@ export function useVitals() {
 
 // Builds a plain object summary string for the AI prompt
 export function vitalsContext(vitals) {
-  return `Heart Rate: ${vitals.hr} BPM, SpO₂: ${vitals.spo2}%, Steps Today: ${vitals.steps.toLocaleString()}, HRV: ${vitals.hrv}ms, Stress Level: ${vitals.stress}, Activity Level: ${vitals.activity}`;
+  return `Heart Rate: ${Math.round(vitals.hr)} BPM, SpO₂: ${parseFloat(vitals.spo2).toFixed(1)}%, Steps Today: ${vitals.steps.toLocaleString()}, HRV: ${parseFloat(vitals.hrv).toFixed(1)}ms, Stress Level: ${vitals.stress}, Activity Level: ${vitals.activity}`;
 }

@@ -118,8 +118,8 @@ Return ONLY valid JSON array, no markdown:
         <div style={{ fontSize:9, fontFamily:'var(--font-head)', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:8 }}>Current Body State</div>
         <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
           {[
-            { label:`❤️ ${vitals.hr} BPM`,             hi: vitals.hr > 85 },
-            { label:`🫁 SpO₂ ${vitals.spo2}%`,         hi: true },
+            { label:`❤️ ${Math.round(vitals.hr)} BPM`,             hi: vitals.hr > 85 },
+            { label:`🫁 SpO₂ ${parseFloat(vitals.spo2).toFixed(1)}%`,         hi: true },
             { label:`👟 ${vitals.steps.toLocaleString()} steps` },
             { label:`🧠 Stress: ${vitals.stress}`,      hi: vitals.stress === 'High' },
             { label:`⚡ ${vitals.activity} activity` },

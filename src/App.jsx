@@ -5,7 +5,6 @@ import './index.css';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth }               from './firebase';
 import { storage }            from './utils/storage';
-import { useVitals }          from './utils/vitals';
 import { useVitalsEnhanced } from './services/vitalsEnhanced';
 
 import BottomNav              from './components/BottomNav';
